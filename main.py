@@ -48,39 +48,20 @@ class ResSin(torch.nn.Module):
 
         self.bendiness = torch.nn.Parameter(torch.zeros(out_features))
 
-        self.fix_bendy_bias = torch.nn.Parameter(
-            torch.randn(out_features),
+        self.tau = (torch.acos(torch.tensor(0.0)) * 4.0).item()
+        self.weight = torch.nn.Parameter(
+            torch.rand(out_features) * self.tau,
             requires_grad=False,
         )
-        self.var_bendy_bias = torch.nn.Parameter(
-            torch.zeros(out_features),
-        )
-
-        self.var_straight_bias = torch.nn.Parameter(
-            torch.zeros(out_features),
-        )
-
-        self.tau = (torch.acos(torch.tensor(0.0)) * 4.0).item()
 
         self.out_features = out_features
 
     def forward(self, x):
-        straight_bias = \
-            self.var_straight_bias
-
-        bendy_bias = \
-            self.fix_bendy_bias + \
-            self.var_bendy_bias
-
-        straight_bit = \
-            x + \
-            straight_bias
-
         bendy_bit = \
             self.bendiness * \
-            (x * self.tau + bendy_bias).sin()
+            (x * self.weight).sin()
 
-        return straight_bit + bendy_bit
+        return x + bendy_bit
 
 
 class ResLinear(torch.nn.Module):
@@ -92,6 +73,10 @@ class ResLinear(torch.nn.Module):
 
         self.weight = torch.nn.Parameter(
             ResLinear._initial_weight(in_features, out_features)
+        )
+
+        self.bias = torch.nn.Parameter(
+            torch.zeros(out_features)
         )
 
     @staticmethod
@@ -106,31 +91,26 @@ class ResLinear(torch.nn.Module):
 
         return weight
 
-    def _assert_input(self, x):
-        assert(len(x.size()) == 2)
-        assert(x.size(1) == self.in_features)
-
     def forward(self, x):
-        self._assert_input(x)
-        return x.matmul(self.weight.t())
+        return torch.addmm(self.bias, x, self.weight.t())
 
 
 layers = []
 
-startRl = ResLinear(2, 222)
-startHi = ResSin(222)
+startRl = ResLinear(2, 111)
+startHi = ResSin(111)
 layers.append(startRl)
 layers.append(startHi)
 
 # for _ in range(40):
-#     layers.append(ResLinear(222, 222))
-#     layers.append(ResSin(222))
-midRl = ResLinear(222, 222)
-midHi = ResSin(222)
+#     layers.append(ResLinear(111, 111))
+#     layers.append(ResSin(111))
+midRl = ResLinear(111, 111)
+midHi = ResSin(111)
 layers.append(midRl)
 layers.append(midHi)
 
-stopRl = ResLinear(222, 2)
+stopRl = ResLinear(111, 2)
 layers.append(stopRl)
 
 parameters = sum(
@@ -139,7 +119,7 @@ parameters = sum(
 )
 optimizer = torch.optim.SGD(
     parameters,
-    lr=1e-4,
+    lr=1e-5,
     momentum=0.9,
     weight_decay=1e-4,
 )
@@ -150,7 +130,7 @@ for i in itertools.count():
     out = startRl(out)
     out = startHi(out)
 
-    for _ in range(200):
+    for _ in range(1000):
         out = midRl(out)
         out = midHi(out)
 
