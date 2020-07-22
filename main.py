@@ -35,42 +35,52 @@ for x_, y_ in data:
     y.append(y_)
 x, y = torch.tensor(x), torch.tensor(y)
 
+# x = 1.5 * (data[:, 0] * 2).tanh()
+# y = 1.5 * (data[:, 0] + data[:, 1]).tanh()
+
+# x = data[:, 0]
+# y = (5.0 * data[:, 1] - 5.0).sigmoid() + (5.0 * data[:, 1] + 5.0).sigmoid()
+
 
 class ResSin(torch.nn.Module):
-    def __init__(self, out_features, bendy_bit_lr=0.5):
+    def __init__(self, out_features):
         super(ResSin, self).__init__()
 
         self.bendiness = torch.nn.Parameter(torch.zeros(out_features))
 
-        self.fix_bias = torch.nn.Parameter(
+        self.fix_bendy_bias = torch.nn.Parameter(
             torch.randn(out_features),
             requires_grad=False,
         )
-        self.var_bias = torch.nn.Parameter(
+        self.var_bendy_bias = torch.nn.Parameter(
             torch.zeros(out_features),
         )
 
-        pi = (torch.acos(torch.tensor(0.0)) * 2.0).item()
-        self.fix_weight = torch.nn.Parameter(
-            torch.ones(out_features) * pi
+        self.var_straight_bias = torch.nn.Parameter(
+            torch.zeros(out_features),
         )
-        self.var_weight = torch.nn.Parameter(
-            torch.randn(out_features) * pi * 2
-        )
+
+        self.tau = (torch.acos(torch.tensor(0.0)) * 4.0).item()
 
         self.out_features = out_features
-        self.bendy_bit_lr = bendy_bit_lr
 
     def forward(self, x):
-        weight = \
-            self.fix_weight + \
-            self.var_weight
-        bias = \
-            self.fix_bias + \
-            self.var_bias
-        return \
-            self.bendiness * self.bendy_bit_lr * (x * weight + bias).sin() + \
-            x
+        straight_bias = \
+            self.var_straight_bias
+
+        bendy_bias = \
+            self.fix_bendy_bias + \
+            self.var_bendy_bias
+
+        straight_bit = \
+            x + \
+            straight_bias
+
+        bendy_bit = \
+            self.bendiness * \
+            (x * self.tau + bendy_bias).sin()
+
+        return straight_bit + bendy_bit
 
 
 class ResLinear(torch.nn.Module):
@@ -87,7 +97,7 @@ class ResLinear(torch.nn.Module):
     @staticmethod
     @torch.no_grad()
     def _initial_weight(in_features, out_features):
-        permuted_out = (torch.arange(out_features) + 1).remainder(out_features)
+        permuted_out = torch.randperm(out_features)
 
         weight = torch.zeros(out_features, in_features)
         for i in range(min(out_features, in_features)):
@@ -107,20 +117,20 @@ class ResLinear(torch.nn.Module):
 
 layers = []
 
-startRl = ResLinear(2, 99)
-startHi = ResSin(99)
+startRl = ResLinear(2, 222)
+startHi = ResSin(222)
 layers.append(startRl)
 layers.append(startHi)
 
-for _ in range(40):
-    layers.append(ResLinear(99, 99))
-    layers.append(ResSin(99))
-# midRl = ResLinear(99, 99)
-# midHi = ResSin(99)
-# layers.append(midRl)
-# layers.append(midHi)
+# for _ in range(40):
+#     layers.append(ResLinear(222, 222))
+#     layers.append(ResSin(222))
+midRl = ResLinear(222, 222)
+midHi = ResSin(222)
+layers.append(midRl)
+layers.append(midHi)
 
-stopRl = ResLinear(99, 2)
+stopRl = ResLinear(222, 2)
 layers.append(stopRl)
 
 parameters = sum(
@@ -129,7 +139,7 @@ parameters = sum(
 )
 optimizer = torch.optim.SGD(
     parameters,
-    lr=1e-2,
+    lr=1e-4,
     momentum=0.9,
     weight_decay=1e-4,
 )
@@ -137,8 +147,14 @@ optimizer = torch.optim.SGD(
 for i in itertools.count():
     out = data
 
-    for l in layers:
-        out = l(out)
+    out = startRl(out)
+    out = startHi(out)
+
+    for _ in range(200):
+        out = midRl(out)
+        out = midHi(out)
+
+    out = stopRl(out)
 
     loss = \
         (out[:, 0] - x).square().mean() + \
@@ -146,7 +162,7 @@ for i in itertools.count():
 
     optimizer.zero_grad()
     loss.backward()
-    torch.nn.utils.clip_grad_norm_(parameters, 0.1)
+    torch.nn.utils.clip_grad_norm_(parameters, 1e0)
     optimizer.step()
 
     if i % 10 == 0:
