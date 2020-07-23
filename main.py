@@ -48,9 +48,19 @@ class ResSin(torch.nn.Module):
 
         self.bendiness = torch.nn.Parameter(torch.zeros(out_features))
 
-        self.tau = (torch.acos(torch.tensor(0.0)) * 4.0).item()
-        self.weight = torch.nn.Parameter(
-            torch.rand(out_features) * self.tau,
+        tau = (torch.acos(torch.tensor(0.0)) * 4.0).item()
+        w_min = - 2.0 * tau
+        w_max =   2.0 * tau
+
+        self.inner_weight = torch.nn.Parameter(
+            ResSin._range_non_zero(out_features, w_min, w_max),
+            requires_grad=False,
+        )
+        self.outer_weight = torch.nn.Parameter(
+            ResSin._range_two(
+                (out_features,),
+                -1, -w_max, w_max, 1
+            ) / self.inner_weight,
             requires_grad=False,
         )
 
@@ -59,9 +69,46 @@ class ResSin(torch.nn.Module):
     def forward(self, x):
         bendy_bit = \
             self.bendiness * \
-            (x * self.weight).sin()
+            self.outer_weight * \
+            (x * self.inner_weight).sin()
 
         return x + bendy_bit
+
+    @staticmethod
+    def _range(num, lo, hi):
+        assert(num >= 2)
+        return torch.arange(num) / float(num - 1) * (hi - lo) + lo
+
+    @staticmethod
+    def _bisect(nums):
+        if len(nums) == 1:
+            l_num = nums[0] // 2
+            r_num = nums[0] - l_num
+            return l_num, r_num
+        elif len(nums) == 2:
+            return nums
+        else:
+            ValueError('Too many nums')
+
+    @staticmethod
+    def _range_two(nums, l_lo, l_hi, r_lo, r_hi):
+        l_num, r_num = ResSin._bisect(nums)
+
+        return torch.cat((
+            ResSin._range(l_num, l_lo, l_hi),
+            ResSin._range(r_num, r_lo, r_hi),
+        ))
+
+    @staticmethod
+    def _range_non_zero(num, lo, hi):
+        l_num, r_num = ResSin._bisect((num,))
+
+        l_lo = lo
+        l_hi = -1.0 / l_num
+        r_lo =  1.0 / r_num
+        r_hi = hi
+
+        return ResSin._range_two((l_num, r_num), l_lo, l_hi, r_lo, r_hi)
 
 
 class ResLinear(torch.nn.Module):
@@ -97,20 +144,20 @@ class ResLinear(torch.nn.Module):
 
 layers = []
 
-startRl = ResLinear(2, 111)
-startHi = ResSin(111)
+startRl = ResLinear(2, 344)
+startHi = ResSin(344)
 layers.append(startRl)
 layers.append(startHi)
 
 # for _ in range(40):
-#     layers.append(ResLinear(111, 111))
-#     layers.append(ResSin(111))
-midRl = ResLinear(111, 111)
-midHi = ResSin(111)
+#     layers.append(ResLinear(344, 344))
+#     layers.append(ResSin(344))
+midRl = ResLinear(344, 344)
+midHi = ResSin(344)
 layers.append(midRl)
 layers.append(midHi)
 
-stopRl = ResLinear(111, 2)
+stopRl = ResLinear(344, 2)
 layers.append(stopRl)
 
 parameters = sum(
@@ -119,9 +166,9 @@ parameters = sum(
 )
 optimizer = torch.optim.SGD(
     parameters,
-    lr=1e-5,
+    lr=2e-5,
     momentum=0.9,
-    weight_decay=1e-4,
+    #weight_decay=1e-3,
 )
 
 for i in itertools.count():
