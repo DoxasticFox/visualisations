@@ -52,16 +52,16 @@ class ResSin(torch.nn.Module):
         w_min = - 2.0 * tau
         w_max =   2.0 * tau
 
-        self.inner_weight = torch.nn.Parameter(
+        self.register_buffer(
+            'inner_weight',
             ResSin._range_non_zero(out_features, w_min, w_max),
-            requires_grad=False,
         )
-        self.outer_weight = torch.nn.Parameter(
+        self.register_buffer(
+            'outer_weight',
             ResSin._range_two(
                 (out_features,),
                 -1, -w_max, w_max, 1
             ) / self.inner_weight,
-            requires_grad=False,
         )
 
         self.out_features = out_features
@@ -144,20 +144,20 @@ class ResLinear(torch.nn.Module):
 
 layers = []
 
-startRl = ResLinear(2, 344)
-startHi = ResSin(344)
+startRl = ResLinear(2, 123)
+startHi = ResSin(123)
 layers.append(startRl)
 layers.append(startHi)
 
 # for _ in range(40):
-#     layers.append(ResLinear(344, 344))
-#     layers.append(ResSin(344))
-midRl = ResLinear(344, 344)
-midHi = ResSin(344)
+#     layers.append(ResLinear(123, 123))
+#     layers.append(ResSin(123))
+midRl = ResLinear(123, 123)
+midHi = ResSin(123)
 layers.append(midRl)
 layers.append(midHi)
 
-stopRl = ResLinear(344, 2)
+stopRl = ResLinear(123, 2)
 layers.append(stopRl)
 
 parameters = sum(
@@ -166,7 +166,7 @@ parameters = sum(
 )
 optimizer = torch.optim.SGD(
     parameters,
-    lr=2e-5,
+    lr=1e-4,
     momentum=0.9,
     #weight_decay=1e-3,
 )
@@ -177,7 +177,7 @@ for i in itertools.count():
     out = startRl(out)
     out = startHi(out)
 
-    for _ in range(1000):
+    for _ in range(100):
         out = midRl(out)
         out = midHi(out)
 
